@@ -1,0 +1,38 @@
+# Build & output directories
+Objects/
+Listings/
+Output/
+Debug/
+Release/
+settings/
+
+# Keil uVision user & intermediate files
+*.uvguix.*
+*.uvgui.*
+*.o
+*.d
+*.crf
+*.axf
+*.hex
+*.bin
+*.map
+*.lst
+*.lnp
+*.dep
+*.fed
+*.l2p
+*.tra
+*.__i
+*._2i
+*.iex
+*.obj
+*.bak
+*.tmp
+*.log
+*.db
+*.dblite
+EventRecorderStub.scvd
+
+# J-Link temporary files
+JLinkLog.txt
+JLinkSettings.ini
