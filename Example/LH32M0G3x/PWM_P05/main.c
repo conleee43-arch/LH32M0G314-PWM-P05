@@ -12,17 +12,13 @@
 /* Private define ------------------------------------------------------------*/
 #define TEMPLATE_LED_PORT             pGPIO0
 #define TEMPLATE_LED_PIN              GPIO_PIN_0
-#define TEMPLATE_UART_PORT            pGPIO0
-#define TEMPLATE_UART_RX_PIN          GPIO_PIN_1
-#define TEMPLATE_UART_TX_PIN          GPIO_PIN_2
 #define TEMPLATE_HEARTBEAT_PERIOD_US  1000000UL
 #define PWM_P05_DEFAULT_FREQ_HZ       1000U
-#define PWM_P05_DEFAULT_DUTY_PCT      50U
+#define PWM_P05_DEFAULT_DUTY_PCT      20U
 
 /* Private declaration -------------------------------------------------------*/
 void SystemClock_Config(void);
 void GPIO_Config(void);
-void UART0_Config(void);
 void P05_PWM_Init(uint32_t freq_hz, uint8_t duty_percent);
 void P05_PWM_SetDuty(uint8_t duty_percent);
 static uint16_t P05_PWM_CalcPulse(uint16_t period, uint8_t duty_percent);
@@ -30,45 +26,23 @@ static uint16_t P05_PWM_CalcPulse(uint16_t period, uint8_t duty_percent);
 /* Functions -----------------------------------------------------------------*/
 int main(void)
 {
-    uint32_t heartbeat = 0U;
-
     /* 上电后IWDG默认开启，若无处理约20秒后复位 */
     LHL_IWDG_Stop();
 
-    /* 1. 配置系统时钟到4MHz，给GPIO/UART/TIM1提供稳定时钟 */
+    /* 1. 配置系统时钟到4MHz，给GPIO/TIM1提供稳定时钟 */
     SystemClock_Config();
 
-    /* 2. 配置模板默认的LED输出引脚 */
+    /* 2. 配置LED输出引脚 */
     GPIO_Config();
 
-    /* 3. 配置UART0，并把printf输出重定向到串口 */
-    UART0_Config();
-
-    /* 4. 初始化P0.5(TIM1_CH1)输出1kHz、初始占空比50%的持续PWM波形 */
+    /* 3. 初始化P0.5(TIM1_CH1)输出指定频率和占空比的持续PWM波形 */
     P05_PWM_Init(PWM_P05_DEFAULT_FREQ_HZ, PWM_P05_DEFAULT_DUTY_PCT);
-
-    printf("\r\nPWM_P05 booted.\r\n");
-    printf("LED=P0.0, UART0_TX=P0.2, UART0_RX=P0.1, HCLK=4MHz\r\n");
-    printf("PWM=P0.5 (TIM1_CH1), Freq=%luHz, InitDuty=%u%%\r\n",
-           (unsigned long)PWM_P05_DEFAULT_FREQ_HZ,
-           (unsigned int)PWM_P05_DEFAULT_DUTY_PCT);
-
+	P05_PWM_SetDuty(50);
     while(1)
     {
-        /* 每1秒翻转LED并动态切换PWM占空比（25% <-> 75%） */
+        /* 每1秒翻转LED */
         LHL_Delay_uS(TEMPLATE_HEARTBEAT_PERIOD_US);
         LHL_GPIO_TogglePin(TEMPLATE_LED_PORT, TEMPLATE_LED_PIN);
-        P05_PWM_SetDuty(25U);
-
-        heartbeat++;
-        printf("Heartbeat %lu, PWM Duty=25%%\r\n", (unsigned long)heartbeat);
-
-        LHL_Delay_uS(TEMPLATE_HEARTBEAT_PERIOD_US);
-        LHL_GPIO_TogglePin(TEMPLATE_LED_PORT, TEMPLATE_LED_PIN);
-        P05_PWM_SetDuty(75U);
-
-        heartbeat++;
-        printf("Heartbeat %lu, PWM Duty=75%%\r\n", (unsigned long)heartbeat);
     }
 }
 
@@ -103,7 +77,7 @@ static uint16_t P05_PWM_CalcPulse(uint16_t period, uint8_t duty_percent)
 /**
   * @brief  初始化 P0.5 引脚为 TIM1_CH1 并输出指定频率和占空比的持续 PWM 波形
   * @param  freq_hz:      目标 PWM 频率（单位：Hz，需 > 0）
-  * @param  duty_percent: 初始占空比百分比（0 ~ 100）
+  * @param  duty_percent: 占空比百分比（0 ~ 100）
   * @retval None
   * @note   当 APB2 分频为 1 分频（RCC_HCLK_DIV1）时，TIM1 时钟频率等于 SystemCoreClock
   */
@@ -160,9 +134,7 @@ void P05_PWM_Init(uint32_t freq_hz, uint8_t duty_percent)
     period    = (uint16_t)(arr_ticks - 1U);
     pulse     = P05_PWM_CalcPulse(period, duty_percent);
 
-    /* 4. 配置 P0.5 引脚为复用推挽输出，映射为 TIM1_CH1 */
-    RCC_AHBPeriphClockCmd(RCC_AHBENR_GPIOEN_Msk, ENABLE);
-
+    /* 4. 配置 P0.5 引脚为复用推挽输出，映射为 TIM1_CH1（LHL_GPIO_Init 内部已使能 GPIO 时钟） */
     GPIO_InitStructure.Pin            = GPIO_PIN_5;
     GPIO_InitStructure.Mode           = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStructure.Current        = GPIO_CURRENT_4mA;
@@ -171,9 +143,8 @@ void P05_PWM_Init(uint32_t freq_hz, uint8_t duty_percent)
     GPIO_InitStructure.Alternate      = GPIO0_5_AF_TIM1_CH1;
     LHL_GPIO_Init(pGPIO0, &GPIO_InitStructure);
 
-    /* 5. 初始化 TIM1 时基并开启 ARR 预装载（ARPE=1） */
+    /* 5. 复位并初始化 TIM1 时基，开启 ARR 预装载（LHL_TIM_Init 内部已使能 TIM1 时钟） */
     LHL_TIM_DeInit(pTIM1);
-    RCC_APB2PeriphClockCmd(RCC_APB2ENR_TIM1EN_Msk, ENABLE);
 
     TIM_InitStructure.Prescaler         = prescaler;
     TIM_InitStructure.Period            = period;
@@ -182,7 +153,7 @@ void P05_PWM_Init(uint32_t freq_hz, uint8_t duty_percent)
     TIM_InitStructure.ClockDivision     = TIM_CKD_DIV1;
     LHL_TIM_Init(pTIM1, &TIM_InitStructure);
 
-    /* 6. 初始化 TIM1 通道 1 为 PWM 模式 1、高电平有效并开启 CCR1 预装载（OC1PE=1） */
+    /* 6. 初始化 TIM1 通道 1 为 PWM 模式 1、高电平有效并开启 CCR1 预装载 */
     TIM_PWMInitStructure.PWMMode     = TIM_PWMMODE_PWM1;
     TIM_PWMInitStructure.PWMPolarity = TIM_PWMPOLARITY_ACTIVE_HIGH;
     TIM_PWMInitStructure.PWMFastMode = DISABLE;
@@ -191,8 +162,7 @@ void P05_PWM_Init(uint32_t freq_hz, uint8_t duty_percent)
     /* LHL_TIM_PWM_Init 内部会自动开启 CC1E 通道输出并产生 UG 事件装载寄存器 */
     LHL_TIM_PWM_Init(pTIM1, &TIM_PWMInitStructure, TIM_CHANNEL_1);
 
-    /* 确保连续计数输出（关闭单脉冲模式）并启动 TIM1 */
-    LHL_TIM_SetOnePulseMode(pTIM1, DISABLE);
+    /* 启动 TIM1 连续输出 PWM */
     LHL_TIM_Start(pTIM1);
 }
 
@@ -246,35 +216,6 @@ void GPIO_Config(void)
     GPIO_InitStructure.Alternate = GPIOx_AF_GPIO;
 
     LHL_GPIO_Init(TEMPLATE_LED_PORT, &GPIO_InitStructure);
-}
-
-/* 配置UART0：P0.1为RX，P0.2为TX，波特率115200-8N1 */
-void UART0_Config(void)
-{
-    GPIO_InitTypeDef GPIO_InitStructure;
-    UART_InitTypeDef UART_InitStructure;
-
-    GPIO_InitStructure.Pin = TEMPLATE_UART_RX_PIN;
-    GPIO_InitStructure.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStructure.Current = GPIO_CURRENT_4mA;
-    GPIO_InitStructure.Pull = GPIO_NOPULL;
-    GPIO_InitStructure.SchmittTrigger = ENABLE;
-    GPIO_InitStructure.Alternate = GPIO0_1_AF_SIN0;
-    LHL_GPIO_Init(TEMPLATE_UART_PORT, &GPIO_InitStructure);
-
-    GPIO_InitStructure.Pin = TEMPLATE_UART_TX_PIN;
-    GPIO_InitStructure.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStructure.Current = GPIO_CURRENT_4mA;
-    GPIO_InitStructure.Pull = GPIO_NOPULL;
-    GPIO_InitStructure.SchmittTrigger = DISABLE;
-    GPIO_InitStructure.Alternate = GPIO0_2_AF_SOUT0;
-    LHL_GPIO_Init(TEMPLATE_UART_PORT, &GPIO_InitStructure);
-
-    UART_InitStructure.UART_BaudRate = 115200;
-    UART_InitStructure.UART_WordLength = UART_WordLength_8b;
-    UART_InitStructure.UART_StopBits = UART_StopBits_1;
-    UART_InitStructure.UART_Parity = UART_Parity_None;
-    LHL_UART_Init(pUART0, &UART_InitStructure);
 }
 
 /*********************************End of File**********************************/
